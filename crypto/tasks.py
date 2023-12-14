@@ -31,6 +31,11 @@ def initialize_exchange(exchange_id, values):
             }
         )
         markets = exchange.load_markets()
+
+        if _type == "future" and exchange_id == "gate":
+            extra_params = {"settle": "usdt"}
+            prices = exchange.fetch_tickers(params=extra_params)
+
         prices = exchange.fetch_tickers()
 
         cache.set(f"{exchange_id}_{_type}_markets", markets, 300)
@@ -50,7 +55,7 @@ def fetch_exchanges():
         exchanges = {
             "binance": {"types": {"spot": None, "swap": None, "future": None}},
             "okx": {"types": {"spot": None, "swap": None, "future": None}},
-            "gateio": {"types": {"spot": None, "swap": None, "future": None}},
+            "gate": {"types": {"spot": None, "swap": None, "future": None}},
         }
 
         for exchange, values in exchanges.items():
@@ -103,6 +108,16 @@ def create_data():
                 insert_exchange_price_details(prices, future, exchange_id)
                 define_best_exchanges_for_tickers(future)
                 insert_common_details(future)
+
+        spot = {
+            key: value for key, value in spot.items() if value.get("type") == "spot"
+        }
+        swap = {
+            key: value for key, value in swap.items() if value.get("type") == "swap"
+        }
+        future = {
+            key: value for key, value in future.items() if value.get("type") == "future"
+        }
 
         cache.set("spot", spot, 300)
         cache.set("swap", swap, 300)
