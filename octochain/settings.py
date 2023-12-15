@@ -27,7 +27,7 @@ SECRET_KEY = "django-insecure-r2fw^5ayzzvb^f!*$9$!ikku!e6b@im)c5552xnngd(b7vqxj=
 DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
-CSRF_TRUSTED_ORIGINS = ["*"]
+CSRF_TRUSTED_ORIGINS = ["https://*.octochain.tech", "https://*.127.0.0.1"]
 
 # Application definition
 
