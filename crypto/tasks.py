@@ -35,8 +35,8 @@ def initialize_exchange(exchange_id, values):
         if _type == "future" and exchange_id == "gate":
             extra_params = {"settle": "usdt"}
             prices = exchange.fetch_tickers(params=extra_params)
-
-        prices = exchange.fetch_tickers()
+        else:
+            prices = exchange.fetch_tickers()
 
         cache.set(f"{exchange_id}_{_type}_markets", markets, 300)
         cache.set(f"{exchange_id}_{_type}_prices", prices, 300)
