@@ -5,4 +5,5 @@ from crypto import views
 urlpatterns = [
     path("tickers", views.tickers, name="tickers"),
     path("future-arbitrage", views.future_arbitrages, name="future_arbitrages"),
+    path("spot-arbitrage", views.spot_arbitrages, name="spot_arbitrages"),
 ]

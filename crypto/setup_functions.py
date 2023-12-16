@@ -38,8 +38,17 @@ def insert_exchange_price_details(prices, _dict, exchange):
             exc_dict["previousClose"] = values["previousClose"]
             exc_dict["change"] = values["change"]
             exc_dict["percentage"] = values["percentage"]
-            exc_dict["baseVolume"] = values["baseVolume"]
-            exc_dict["quoteVolume"] = values["quoteVolume"]
+
+            if values["baseVolume"] == None:
+                exc_dict["baseVolume"] = values["quoteVolume"] / values["last"]
+            else:
+                exc_dict["baseVolume"] = values["baseVolume"]
+
+            if values["quoteVolume"] == None:
+                exc_dict["quoteVolume"] = values["baseVolume"] * values["last"]
+            else:
+                exc_dict["quoteVolume"] = values["quoteVolume"]
+
         except:
             continue
 

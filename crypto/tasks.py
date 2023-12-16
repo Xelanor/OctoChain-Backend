@@ -32,11 +32,15 @@ def initialize_exchange(exchange_id, values):
         )
         markets = exchange.load_markets()
 
-        if _type == "future" and exchange_id == "gate":
-            extra_params = {"settle": "usdt"}
-            prices = exchange.fetch_tickers(params=extra_params)
+        if exchange.has[_type] == True:
+            if _type == "future" and exchange_id == "gate":
+                extra_params = {"settle": "usdt"}
+                prices = exchange.fetch_tickers(params=extra_params)
+            else:
+                prices = exchange.fetch_tickers()
+
         else:
-            prices = exchange.fetch_tickers()
+            prices = {}
 
         cache.set(f"{exchange_id}_{_type}_markets", markets, 300)
         cache.set(f"{exchange_id}_{_type}_prices", prices, 300)
@@ -56,6 +60,8 @@ def fetch_exchanges():
             "binance": {"types": {"spot": None, "swap": None, "future": None}},
             "okx": {"types": {"spot": None, "swap": None, "future": None}},
             "gate": {"types": {"spot": None, "swap": None, "future": None}},
+            "mexc": {"types": {"spot": None, "swap": None, "future": None}},
+            "bitmart": {"types": {"spot": None, "swap": None, "future": None}},
         }
 
         for exchange, values in exchanges.items():
