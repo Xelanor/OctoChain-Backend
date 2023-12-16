@@ -19,62 +19,86 @@ c_handler.setFormatter(c_format)
 logger.addHandler(c_handler)
 
 
-def initialize_exchange(exchange_id, values):
-    exchange_class = getattr(ccxt, exchange_id)
-
-    for _type in values["types"]:
-        exchange = exchange_class(
-            {
-                "options": {
-                    "defaultType": _type,
-                },
-            }
-        )
-        markets = exchange.load_markets()
-
-        if exchange.has[_type] == True:
-            if _type == "future" and exchange_id == "gate":
-                extra_params = {"settle": "usdt"}
-                prices = exchange.fetch_tickers(params=extra_params)
-            else:
-                prices = exchange.fetch_tickers()
-
-        else:
-            prices = {}
-
-        cache.set(f"{exchange_id}_{_type}_markets", markets, 300)
-        cache.set(f"{exchange_id}_{_type}_prices", prices, 300)
-        logger.info(f"{exchange_id} {_type} market and prices set!")
+exchanges = {
+    "binance": {"types": {"spot": None, "swap": None, "future": None}},
+    "okx": {"types": {"spot": None, "swap": None, "future": None}},
+    "gate": {"types": {"spot": None, "swap": None, "future": None}},
+    "mexc": {"types": {"spot": None, "swap": None, "future": None}},
+    "bitmart": {"types": {"spot": None, "swap": None, "future": None}},
+}
 
 
 @app.on_after_finalize.connect
 def setup_periodic_tasks(sender, **kwargs):
-    sender.add_periodic_task(20, fetch_exchanges.s())
+    sender.add_periodic_task(120, fetch_exchange_markets.s())
+    sender.add_periodic_task(20, fetch_exchange_prices.s())
     sender.add_periodic_task(15, create_data.s())
 
 
 @app.task
-def fetch_exchanges():
+def fetch_exchange_markets():
     try:
-        exchanges = {
-            "binance": {"types": {"spot": None, "swap": None, "future": None}},
-            "okx": {"types": {"spot": None, "swap": None, "future": None}},
-            "gate": {"types": {"spot": None, "swap": None, "future": None}},
-            "mexc": {"types": {"spot": None, "swap": None, "future": None}},
-            "bitmart": {"types": {"spot": None, "swap": None, "future": None}},
-        }
-
-        for exchange, values in exchanges.items():
-            fetch_exchange.delay(exchange, values)
+        for exchange in exchanges:
+            fetch_exchange_market.delay(exchange)
 
     except:
         logger.error(traceback.format_exc())
 
 
 @app.task
-def fetch_exchange(exchange, values):
+def fetch_exchange_market(exchange_id):
     try:
-        initialize_exchange(exchange, values)
+        exchange_class = getattr(ccxt, exchange_id)
+        exchange = exchange_class()
+        markets = exchange.load_markets()
+
+        cache.set(f"{exchange_id}_markets", markets, 300)
+        logger.info(f"{exchange_id} markets set!")
+    except:
+        logger.error(traceback.format_exc())
+
+
+@app.task
+def fetch_exchange_prices():
+    try:
+        for exchange_id, values in exchanges.items():
+            fetch_exchange_price.delay(exchange_id, values)
+
+    except:
+        logger.error(traceback.format_exc())
+
+
+@app.task
+def fetch_exchange_price(exchange_id, values):
+    try:
+        exchange_class = getattr(ccxt, exchange_id)
+        markets = cache.get(f"{exchange_id}_markets")
+
+        if not markets:
+            raise "No market details"
+
+        for _type in values["types"]:
+            exchange = exchange_class(
+                {
+                    "options": {
+                        "defaultType": _type,
+                    },
+                }
+            )
+            exchange.markets = markets
+
+            if exchange.has[_type] == True:  # ! TODO: Check this if necessary
+                if _type == "future" and exchange_id == "gate":
+                    extra_params = {"settle": "usdt"}
+                    prices = exchange.fetch_tickers(params=extra_params)
+                else:
+                    prices = exchange.fetch_tickers()
+
+            else:
+                prices = {}
+
+            cache.set(f"{exchange_id}_{_type}_prices", prices, 300)
+            logger.info(f"{exchange_id} {_type} prices set!")
     except:
         logger.error(traceback.format_exc())
 
@@ -86,12 +110,12 @@ def create_data():
         swap = {}
         future = {}
 
-        market_names = cache.keys("*markets")
+        market_names = cache.keys("*prices")
         for market in market_names:
             exchange_id = market.split("_")[0]
             _type = market.split("_")[1]
 
-            markets = cache.get(f"{exchange_id}_{_type}_markets")
+            markets = cache.get(f"{exchange_id}_markets")
             prices = cache.get(f"{exchange_id}_{_type}_prices")
 
             if _type == "spot":
