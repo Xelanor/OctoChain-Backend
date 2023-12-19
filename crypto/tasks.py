@@ -6,6 +6,7 @@ import ccxt
 
 from octochain.celery import app
 from crypto.setup_functions import *
+from crypto.spot_arbitrage import spot_arbitrage_opportunuties
 
 logger = logging.getLogger()
 c_handler = logging.StreamHandler()
@@ -33,6 +34,7 @@ def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(120, fetch_exchange_markets.s())
     sender.add_periodic_task(20, fetch_exchange_prices.s())
     sender.add_periodic_task(15, create_data.s())
+    sender.add_periodic_task(20, spot_arbitrage_opportunuties.s())
 
 
 @app.task
@@ -51,8 +53,10 @@ def fetch_exchange_market(exchange_id):
         exchange_class = getattr(ccxt, exchange_id)
         exchange = exchange_class()
         markets = exchange.load_markets()
+        currencies = exchange.currencies
 
         cache.set(f"{exchange_id}_markets", markets, 300)
+        cache.set(f"{exchange_id}_currencies", currencies, 300)
         logger.info(f"{exchange_id} markets set!")
     except:
         logger.error(traceback.format_exc())

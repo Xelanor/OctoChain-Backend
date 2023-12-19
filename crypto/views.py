@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from django.core.cache import cache
 
 from crypto.future_arbitrage import calculate_future_arbitrage
-from crypto.spot_arbitrage import calculate_spot_arbitrage
+from crypto.spot_arbitrage import spot_arbitrage_opportunuties
 
 
 @api_view(["GET"])
@@ -40,6 +40,10 @@ def future_arbitrages(request):
 @api_view(["GET"])
 def spot_arbitrages(request):
     if request.method == "GET":
-        arbitrages = calculate_spot_arbitrage()
+        arbitrages = []
+        arbs_keys = cache.keys("arb_*")
+        for arb_key in arbs_keys:
+            arb = cache.get(arb_key)
+            arbitrages.append(arb)
 
         return Response({"arbitrages": arbitrages})

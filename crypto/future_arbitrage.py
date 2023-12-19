@@ -5,6 +5,7 @@ from crypto.business_functions import (
     calculate_future_apr,
     calculate_spread_rate,
     find_transaction_prices,
+    calculate_future_real_apr,
 )
 
 
@@ -26,9 +27,11 @@ def calculate_future_arbitrage():
             base = contract_values["base"]
             quote = contract_values["quote"]
             spot_symbol = f"{base}/{quote}"
+            future_fee = 0.0005
 
             try:
                 spot_values = spot[spot_symbol]["exchanges"][contract_exchange]
+                spot_fee = spot_values["taker"]
             except:
                 continue
 
@@ -42,6 +45,9 @@ def calculate_future_arbitrage():
 
             spread_rate = calculate_spread_rate(spot_price, contract_price)
             apr = calculate_future_apr(spot_price, contract_price, days_to_maturity)
+            real_apr = calculate_future_real_apr(
+                spot_price, contract_price, days_to_maturity, spot_fee, future_fee
+            )
 
             arbitrage = {
                 "long": spot_values,
@@ -49,6 +55,7 @@ def calculate_future_arbitrage():
                 "spread": spread_rate,
                 "days_to_maturity": days_to_maturity,
                 "apr": apr,
+                "real_apr": real_apr,
             }
             arbitrages.append(arbitrage)
 
