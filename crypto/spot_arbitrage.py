@@ -118,6 +118,8 @@ def spot_arbitrage_opportunuties():
     arbitrages = calculate_spot_arbitrage()
     exchange_functions = initialize_exchange_functions()
 
+    cache.set("all_arbitrages", arbitrages, 120)
+
     opportunuties = []
     desired_budget_levels = [
         {"budget": 500, "profit_rate": 0.004},
