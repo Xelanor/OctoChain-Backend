@@ -6,6 +6,7 @@ from crypto.business_functions import (
     calculate_spread_rate,
     calculate_avg_price,
     determine_price_str,
+    telegram_bot_sendtext,
 )
 from octochain.celery import app
 
@@ -214,4 +215,7 @@ def spot_arbitrage_opportunuties():
             }
             cache.set(
                 f"arb_{symbol}-{from_exchange}-{to_exchange}", arb_opportunity, 120
+            )
+            telegram_bot_sendtext(
+                f"Spot Arbitrage found: {symbol}-{from_exchange}-{to_exchange}"
             )
