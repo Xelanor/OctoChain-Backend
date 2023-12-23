@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from django.core.cache import cache
 
 from crypto.future_arbitrage import calculate_future_arbitrage
-from crypto.spot_arbitrage import spot_arbitrage_opportunuties
+from crypto.spot_arbitrage import spot_arb_details
 
 
 @api_view(["GET"])
@@ -47,3 +47,18 @@ def spot_arbitrages(request):
             arbitrages.append(arb)
 
         return Response({"arbitrages": arbitrages})
+
+
+@api_view(["POST"])
+def spot_arb_details_view(request):
+    if request.method == "POST":
+        body = request.data
+        symbol = body["symbol"]
+        from_exc = body["from_exc"]
+        to_exc = body["to_exc"]
+        hedge_symbol = body["hedge_symbol"]
+        hedge_exc = body["hedge_exc"]
+
+        details = spot_arb_details(symbol, from_exc, to_exc, hedge_symbol, hedge_exc)
+
+        return Response({"details": details})

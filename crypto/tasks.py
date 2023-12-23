@@ -49,14 +49,36 @@ def fetch_exchange_markets():
 
 @app.task
 def fetch_exchange_market(exchange_id):
+    params = {}
     try:
+        if exchange_id == "mexc":
+            params = {
+                "apiKey": "mx0vglEXVsLR3kPn14",
+                "secret": "9e765cc400f14d22bbfc86b6d0216c3b",
+            }
+
+        elif exchange_id == "binance":
+            params = {
+                "apiKey": "OHpPR9P1pGPcn2fcO0tD1YXsR5ZamEwxAfZi7sKhtCnRREhhwNEvRcaxXNaqXGE7",
+                "secret": "qfFWipJZeugIlB21VSuvjLGFGxQT0zQtxePG6HaMLhLavzBV4mDW9l7N1VkmhLlZ",
+            }
+
+        elif exchange_id == "bitmart":
+            params = {
+                "apiKey": "208bb2453bd813ac52807733333d8acf59f32084",
+                "secret": "73c5474076a429919810c029be8d7052f5f84884c23e76a32650b97b35540742",
+                "password": "bot",
+            }
+
         exchange_class = getattr(ccxt, exchange_id)
-        exchange = exchange_class()
+        exchange = exchange_class(params)
         markets = exchange.load_markets()
         currencies = exchange.currencies
+        markets_by_id = exchange.markets_by_id
 
         cache.set(f"{exchange_id}_markets", markets, 300)
         cache.set(f"{exchange_id}_currencies", currencies, 300)
+        cache.set(f"{exchange_id}_markets_by_id", markets_by_id, 300)
         logger.info(f"{exchange_id} markets set!")
     except:
         logger.error(traceback.format_exc())
@@ -120,11 +142,13 @@ def create_data():
             _type = market.split("_")[1]
 
             markets = cache.get(f"{exchange_id}_markets")
+            currencies = cache.get(f"{exchange_id}_currencies")
             prices = cache.get(f"{exchange_id}_{_type}_prices")
 
             if _type == "spot":
                 create_empty_exchange_dict(prices, spot, exchange_id)
                 insert_exchange_market_details(markets, spot, exchange_id)
+                insert_exchange_currency_details(currencies, spot, exchange_id)
                 insert_exchange_price_details(prices, spot, exchange_id)
                 define_best_exchanges_for_tickers(spot)
                 insert_common_details(spot)

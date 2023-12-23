@@ -18,6 +18,53 @@ exchanges = {
 }
 
 
+def initialize_exchange_functions():
+    exchange_functions = {}
+
+    for exchange_id, values in exchanges.items():
+        exchange_class = getattr(ccxt, exchange_id)
+        markets = cache.get(f"{exchange_id}_markets")
+        currencies = cache.get(f"{exchange_id}_currencies")
+        markets_by_id = cache.get(f"{exchange_id}_markets_by_id")
+
+        exchange_functions[exchange_id] = {}
+
+        if not markets:
+            raise "No market details"
+
+        for _type in ["spot", "swap"]:
+            exchange = exchange_class(
+                {
+                    "options": {
+                        "defaultType": _type,
+                    },
+                }
+            )
+            exchange.markets = markets
+            exchange.currencies = currencies
+            exchange.markets_by_id = markets_by_id
+            exchange_functions[exchange_id][_type] = exchange
+
+    return exchange_functions
+
+
+def spot_arb_details(symbol, from_exc, to_exc, hedge_symbol, hedge_exc):
+    exchange_functions = initialize_exchange_functions()
+
+    from_board = exchange_functions[from_exc]["spot"].fetch_order_book(symbol, limit=20)
+    to_board = exchange_functions[to_exc]["spot"].fetch_order_book(symbol, limit=20)
+    hedge_board = exchange_functions[hedge_exc]["swap"].fetch_order_book(
+        hedge_symbol, limit=20
+    )
+
+    details = {
+        "from_board": from_board,
+        "to_board": to_board,
+        "hedge_board": hedge_board,
+    }
+    return details
+
+
 def calculate_spot_arbitrage():
     spot = cache.get("spot")
     swap = cache.get("swap")
@@ -49,7 +96,7 @@ def calculate_spot_arbitrage():
                 except:
                     continue
 
-                if 1.2 < profit_rate < 30:
+                if 0.3 < profit_rate < 30:
                     try:
                         hedge = swap[f"{coin_symbol}:USDT"]["exchanges"][to_exchange]
                     except:
@@ -66,32 +113,6 @@ def calculate_spot_arbitrage():
     return arbitrages
 
 
-def initialize_exchange_functions():
-    exchange_functions = {}
-
-    for exchange_id, values in exchanges.items():
-        exchange_class = getattr(ccxt, exchange_id)
-        markets = cache.get(f"{exchange_id}_markets")
-
-        exchange_functions[exchange_id] = {}
-
-        if not markets:
-            raise "No market details"
-
-        for _type in ["spot", "swap"]:
-            exchange = exchange_class(
-                {
-                    "options": {
-                        "defaultType": _type,
-                    },
-                }
-            )
-            exchange.markets = markets
-            exchange_functions[exchange_id][_type] = exchange
-
-    return exchange_functions
-
-
 @app.task
 def spot_arbitrage_opportunuties():
     arbitrages = calculate_spot_arbitrage()
@@ -99,9 +120,9 @@ def spot_arbitrage_opportunuties():
 
     opportunuties = []
     desired_budget_levels = [
-        {"budget": 500, "profit_rate": 0.02},
-        {"budget": 1000, "profit_rate": 0.02},
-        {"budget": 2000, "profit_rate": 0.015},
+        {"budget": 500, "profit_rate": 0.004},
+        {"budget": 1000, "profit_rate": 0.004},
+        {"budget": 2000, "profit_rate": 0.003},
     ]
     max_profit_rate = 0.3
 
@@ -145,16 +166,27 @@ def spot_arbitrage_opportunuties():
             )
             if ask_reached and bid_reached and hedge_bid_reached:
                 nominal_profit = (
-                    budget_level["budget"] / avg_ask * avg_bid
-                ) - budget_level["budget"]
+                    budget_level["budget"] / avg_ask * avg_bid - budget_level["budget"]
+                )
                 # real_profit = nominal_profit - fee if fee else nominal_profit
                 real_profit = nominal_profit
 
-                if (
+                hedge_real_profit = (
+                    budget_level["budget"] / avg_ask * avg_hedge_bid
+                ) - budget_level["budget"]
+
+                spot_profitable = (
                     budget_level["profit_rate"]
                     < real_profit / budget_level["budget"]
                     < max_profit_rate
-                ):
+                )
+                hedge_profitable = (
+                    budget_level["profit_rate"]
+                    < hedge_real_profit / budget_level["budget"]
+                    < max_profit_rate
+                )
+
+                if spot_profitable and hedge_profitable:
                     found += 1
             else:
                 real_profit = 0

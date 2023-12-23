@@ -43,11 +43,15 @@ def calculate_future_arbitrage():
                 spot_values, contract_values
             )
 
-            spread_rate = calculate_spread_rate(spot_price, contract_price)
-            apr = calculate_future_apr(spot_price, contract_price, days_to_maturity)
-            real_apr = calculate_future_real_apr(
-                spot_price, contract_price, days_to_maturity, spot_fee, future_fee
-            )
+            try:
+                spread_rate = calculate_spread_rate(spot_price, contract_price)
+                apr = calculate_future_apr(spot_price, contract_price, days_to_maturity)
+                real_apr = calculate_future_real_apr(
+                    spot_price, contract_price, days_to_maturity, spot_fee, future_fee
+                )
+            except Exception as e:
+                print(e, contract_symbol, contract_exchange)
+                continue
 
             arbitrage = {
                 "long": spot_values,

@@ -16,7 +16,10 @@ def calculate_future_real_apr(long_price, short_price, days, spot_fee, future_fe
 
 
 def calculate_spread_rate(first_price, second_price):
-    return abs(second_price / first_price) - 1
+    try:
+        return abs(second_price / first_price) - 1
+    except:
+        return 0
 
 
 def find_transaction_prices(spot_values, contract_values):
