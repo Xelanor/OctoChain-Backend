@@ -96,7 +96,7 @@ def calculate_spot_arbitrage():
                 except:
                     continue
 
-                if 0.3 < profit_rate < 30:
+                if 0.6 < profit_rate < 30:
                     try:
                         hedge = swap[f"{coin_symbol}:USDT"]["exchanges"][to_exchange]
                     except:
@@ -122,9 +122,9 @@ def spot_arbitrage_opportunuties():
 
     opportunuties = []
     desired_budget_levels = [
-        {"budget": 500, "profit_rate": 0.004},
-        {"budget": 1000, "profit_rate": 0.004},
-        {"budget": 2000, "profit_rate": 0.003},
+        {"budget": 500, "profit_rate": 0.005},
+        {"budget": 1000, "profit_rate": 0.005},
+        {"budget": 2000, "profit_rate": 0.004},
     ]
     max_profit_rate = 0.3
 
