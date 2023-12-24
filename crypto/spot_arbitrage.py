@@ -23,28 +23,31 @@ def initialize_exchange_functions():
     exchange_functions = {}
 
     for exchange_id, values in exchanges.items():
-        exchange_class = getattr(ccxt, exchange_id)
-        markets = cache.get(f"{exchange_id}_markets")
-        currencies = cache.get(f"{exchange_id}_currencies")
-        markets_by_id = cache.get(f"{exchange_id}_markets_by_id")
+        try:
+            exchange_class = getattr(ccxt, exchange_id)
+            markets = cache.get(f"{exchange_id}_markets")
+            currencies = cache.get(f"{exchange_id}_currencies")
+            markets_by_id = cache.get(f"{exchange_id}_markets_by_id")
 
-        exchange_functions[exchange_id] = {}
+            exchange_functions[exchange_id] = {}
 
-        if not markets:
-            raise "No market details"
+            if not markets:
+                raise "No market details"
 
-        for _type in ["spot", "swap"]:
-            exchange = exchange_class(
-                {
-                    "options": {
-                        "defaultType": _type,
-                    },
-                }
-            )
-            exchange.markets = markets
-            exchange.currencies = currencies
-            exchange.markets_by_id = markets_by_id
-            exchange_functions[exchange_id][_type] = exchange
+            for _type in ["spot", "swap"]:
+                exchange = exchange_class(
+                    {
+                        "options": {
+                            "defaultType": _type,
+                        },
+                    }
+                )
+                exchange.markets = markets
+                exchange.currencies = currencies
+                exchange.markets_by_id = markets_by_id
+                exchange_functions[exchange_id][_type] = exchange
+        except:
+            continue
 
     return exchange_functions
 

@@ -53,8 +53,8 @@ def fetch_exchange_market(exchange_id):
     try:
         if exchange_id == "mexc":
             params = {
-                "apiKey": "mx0vglEXVsLR3kPn14",
-                "secret": "9e765cc400f14d22bbfc86b6d0216c3b",
+                "apiKey": "mx0vgl90enlAWT1EYK",
+                "secret": "ee94684c03c041038d6a87bf0c9e4669",
             }
 
         elif exchange_id == "binance":
