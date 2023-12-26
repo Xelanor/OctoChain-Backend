@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "core",
     "crypto",
     "hedge_bot",
+    "octofolio",
 ]
 
 MIDDLEWARE = [
