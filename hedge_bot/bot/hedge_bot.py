@@ -7,9 +7,11 @@ import traceback
 import ccxt
 
 from hedge_bot.models import HedgeBot, HedgeBotTx, ExchangeApi, Exchange
+from crypto.business_functions import calculate_avg_price, calculate_spread_rate
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class HedgeBotClass:
@@ -20,11 +22,31 @@ class HedgeBotClass:
 
         self.bot = HedgeBot.objects.get(id=bot_id)
         self.tick = self.bot.tick
+        self.spot_ticker = f"{self.tick}/USDT"
+        self.hedge_ticker = f"{self.tick}/USDT:USDT"
 
         self.setup_logger()
         self.spot_apis, self.hedge_apis, self.fees = self.setup_exchange_api()
 
-        print(self.bot_id, self.tick, self.spot_apis, self.hedge_apis, self.fees)
+        logger.debug(
+            f"Tick: {self.tick} \n Spot APIs: {self.spot_apis} \n Hedge APIs: {self.hedge_apis}"
+        )
+
+    def check_bot_status(self):
+        status = None
+        self.bot = HedgeBot.objects.get(id=self.bot_id)
+
+        if self.bot.status == False:
+            status = "STOP"
+
+        return status
+
+    def set_bot_settings(self):
+        self.settings = self.bot.settings
+        self.max_size = self.bot.max_size
+        self.control_size = self.bot.control_size
+        self.tx_size = self.bot.tx_size
+        self.min_profit = self.bot.min_profit
 
     def setup_exchange_api(self):
         spot_apis = {}
@@ -89,14 +111,123 @@ class HedgeBotClass:
         logger.addHandler(f_handler)
 
     def fetch_account_balances(self):
-        pass
+        self.spot_balances = {}
+        self.hedge_balances = {}
+
+        for spot_exchange, spot_api in self.spot_apis.items():
+            ticks = ["USDT", self.tick]
+            balances = {}
+            spot_balance = spot_api.fetch_balance()
+
+            for tick in ticks:
+                try:
+                    balances[tick] = {
+                        "available": spot_balance[tick]["free"],
+                        "total": spot_balance[tick]["total"],
+                    }
+                except KeyError:
+                    balances[tick] = {"available": 0, "total": 0}
+
+            self.spot_balances[spot_exchange] = balances
+
+        for hedge_exchange, hedge_api in self.hedge_apis.items():
+            ticks = ["USDT"]
+            balances = {}
+            hedge_balance = hedge_api.fetch_balance()
+
+            for tick in ticks:
+                try:
+                    balances[tick] = {
+                        "available": hedge_balance[tick]["free"],
+                        "total": hedge_balance[tick]["total"],
+                    }
+                except KeyError:
+                    balances[tick] = {"available": 0, "total": 0}
+
+            self.hedge_balances[hedge_exchange] = balances
+
+    def fetch_order_books(self):
+        self.spot_order_books = {}
+        self.hedge_order_books = {}
+
+        for spot_exchange, spot_api in self.spot_apis.items():
+            spot_order_book = spot_api.fetch_order_book(self.spot_ticker, 20)
+            depth = {
+                "asks": spot_order_book["asks"],
+                "bids": spot_order_book["bids"],
+            }
+
+            self.spot_order_books[spot_exchange] = depth
+
+        for hedge_exchange, hedge_api in self.hedge_apis.items():
+            hedge_order_book = hedge_api.fetch_order_book(self.hedge_ticker, 20)
+            depth = {
+                "asks": hedge_order_book["asks"],
+                "bids": hedge_order_book["bids"],
+            }
+
+            self.hedge_order_books[hedge_exchange] = depth
+
+    def find_profitable_open_deal(self):
+        spot_exchanges = self.spot_order_books.keys()
+        hedge_exchanges = self.hedge_order_books.keys()
+
+        for spot_exchange in spot_exchanges:
+            spot_depth = self.spot_order_books[spot_exchange]
+            avg_spot_price, spot_reached = calculate_avg_price(
+                spot_depth["asks"], self.control_size
+            )
+            if not spot_reached:
+                continue
+
+            logger.info(f"Spot-{spot_exchange} average price: {avg_spot_price}")
+
+            for hedge_exchange in hedge_exchanges:
+                hedge_depth = self.hedge_order_books[hedge_exchange]
+
+                avg_hedge_price, hedge_reached = calculate_avg_price(
+                    hedge_depth["bids"], self.control_size
+                )
+                if not hedge_reached:
+                    continue
+
+                logger.info(f"Hedge-{hedge_exchange} average price: {avg_hedge_price}")
+
+                profit_rate = calculate_spread_rate(avg_spot_price, avg_hedge_price)
+                logger.info(f"Profit rate: {profit_rate}")
+
+                if profit_rate > self.min_profit:
+                    logger.info("Profitable deal found!")
+                    logger.info(
+                        f"Spot-{spot_exchange} average price: {avg_spot_price} \n Hedge-{hedge_exchange} average price: {avg_hedge_price} \n Profit rate: {round(profit_rate, 2)}"
+                    )
+
+                    deal = {
+                        "spot": spot_exchange,
+                        "hedge": hedge_exchange,
+                        "profit_rate": profit_rate,
+                        "side": "open",
+                    }
 
     def bot_session(self):
-        self.balances = self.fetch_account_balances()
+        self.fetch_account_balances()
+        logger.debug(f"Spot balances: {self.spot_balances}")
+        logger.debug(f"Hedge balances: {self.hedge_balances}")
+        self.fetch_order_books()
+        logger.debug(f"Spot order books: {self.spot_order_books}")
+        logger.debug(f"Hedge order books: {self.hedge_order_books}")
+
+        self.find_profitable_open_deal()
 
     def run(self):
         try:
             while True:
+                bot_status = self.check_bot_status()
+                if bot_status == "STOP":
+                    return False
+
+                self.set_bot_settings()
+
                 session_status = self.bot_session()
                 sleep(1)
 
