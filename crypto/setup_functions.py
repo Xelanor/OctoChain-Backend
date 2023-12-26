@@ -30,12 +30,12 @@ def insert_exchange_market_details(markets, _dict, exchange):
 
 def insert_exchange_currency_details(currencies, _dict, exchange):
     for ticker in _dict:
-        base = _dict[ticker]["exchanges"][exchange]["base"]
-
         try:
+            base = _dict[ticker]["exchanges"][exchange]["base"]
             currencyDetails = currencies[base]
             currencyDetails.pop("info", None)
             _dict[ticker]["exchanges"][exchange]["currencyDetails"] = currencyDetails
+
         except:
             continue
 
