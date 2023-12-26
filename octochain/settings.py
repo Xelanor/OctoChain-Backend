@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "core",
     "crypto",
+    "hedge_bot",
 ]
 
 MIDDLEWARE = [
