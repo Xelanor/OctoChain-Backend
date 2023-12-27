@@ -75,6 +75,7 @@ class HedgeBotTx(models.Model):
     hedge_exchange = models.ForeignKey(
         Exchange, on_delete=models.CASCADE, related_name="hedge_exchange"
     )
-    quantity = models.FloatField()
-    profit = models.FloatField()
+    spot_quantity = models.FloatField()
+    hedge_quantity = models.FloatField()
+    fee = models.FloatField()
     created_at = models.DateTimeField(default=now)

@@ -8,6 +8,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/crypto/", include("crypto.urls")),
     path("api/octofolio/", include("octofolio.urls")),
+    path("api/hedge_bot/", include("hedge_bot.urls")),
 ]
 
 if settings.DEBUG:
