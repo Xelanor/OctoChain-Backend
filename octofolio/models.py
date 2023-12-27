@@ -18,7 +18,8 @@ class Asset(models.Model):
     symbol = models.CharField(max_length=20)
     name = models.CharField(max_length=255)
     asset_type = models.CharField(max_length=10, choices=ASSET_TYPES)
-    logo = models.ImageField(upload_to="asset_logos/", null=True, blank=True)
+    tag = models.CharField(max_length=255, null=True, blank=True)
+    logo = models.URLField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -40,6 +41,11 @@ class Portfolio(models.Model):
 
     def __str__(self):
         return f"Portfolio for {self.user} - {self.name}"
+
+    def get_assets(self):
+        # Retrieve the assets associated with this portfolio
+        assets = Asset.objects.filter(transaction__portfolio=self).distinct()
+        return assets
 
 
 class Transaction(models.Model):
