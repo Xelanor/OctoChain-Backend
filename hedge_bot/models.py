@@ -50,7 +50,8 @@ class HedgeBot(models.Model):
     max_size = models.IntegerField(default=1000)
     control_size = models.IntegerField(default=50)
     tx_size = models.IntegerField(default=40)
-    min_profit = models.FloatField(default=0.01)
+    min_open_profit = models.FloatField(default=0.01)
+    min_close_profit = models.FloatField(default=0.005)
     created_at = models.DateTimeField(default=now)
 
     def __str__(self):
@@ -67,8 +68,10 @@ class HedgeBotTx(models.Model):
 
     bot = models.ForeignKey(HedgeBot, on_delete=models.CASCADE)
     side = models.CharField(max_length=255, choices=SIDE_CHOICES)
-    spot_price = models.FloatField()
-    hedge_price = models.FloatField()
+    spot_cost_price = models.FloatField()
+    hedge_cost_price = models.FloatField()
+    spot_price = models.FloatField(blank=True, null=True)
+    hedge_price = models.FloatField(blank=True, null=True)
     spot_exchange = models.ForeignKey(
         Exchange, on_delete=models.CASCADE, related_name="spot_exchange"
     )
@@ -79,3 +82,6 @@ class HedgeBotTx(models.Model):
     hedge_quantity = models.FloatField()
     fee = models.FloatField()
     created_at = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.bot} - {self.side} - {self.created_at}"

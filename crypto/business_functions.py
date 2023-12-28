@@ -97,3 +97,73 @@ def determine_price_str(price):
     order_price = format(price, f".{decimal_count}f")
 
     return order_price
+
+
+def calculate_spot_fifo_average_cost(transactions):
+    buy_transactions = [t for t in transactions if t["side"] == "open"]
+    sell_transactions = [t for t in transactions if t["side"] == "close"]
+
+    for sell_transaction in sell_transactions:
+        sell_quantity = sell_transaction["spot_quantity"]
+
+        for buy_transaction in buy_transactions[:]:
+            buy_quantity = buy_transaction["spot_quantity"]
+
+            if buy_quantity > sell_quantity:
+                buy_transaction["spot_quantity"] -= sell_quantity
+                sell_quantity = 0
+                break
+
+            elif buy_quantity == sell_quantity:
+                buy_transactions.remove(buy_transaction)
+                sell_quantity = 0
+                break
+
+            else:
+                buy_transactions.remove(buy_transaction)
+                sell_quantity -= buy_quantity
+
+        if sell_quantity > 0:
+            sell_transaction["spot_quantity"] = sell_quantity
+
+    total_quantity = sum([t["spot_quantity"] for t in buy_transactions])
+    total_price = sum(
+        [t["spot_cost_price"] * t["spot_quantity"] for t in buy_transactions]
+    )
+    average_cost = total_price / total_quantity
+    return average_cost
+
+
+def calculate_hedge_fifo_average_cost(transactions):
+    buy_transactions = [t for t in transactions if t["side"] == "open"]
+    sell_transactions = [t for t in transactions if t["side"] == "close"]
+
+    for sell_transaction in sell_transactions:
+        sell_quantity = sell_transaction["hedge_quantity"]
+
+        for buy_transaction in buy_transactions[:]:
+            buy_quantity = buy_transaction["hedge_quantity"]
+
+            if buy_quantity > sell_quantity:
+                buy_transaction["hedge_quantity"] -= sell_quantity
+                sell_quantity = 0
+                break
+
+            elif buy_quantity == sell_quantity:
+                buy_transactions.remove(buy_transaction)
+                sell_quantity = 0
+                break
+
+            else:
+                buy_transactions.remove(buy_transaction)
+                sell_quantity -= buy_quantity
+
+        if sell_quantity > 0:
+            sell_transaction["hedge_quantity"] = sell_quantity
+
+    total_quantity = sum([t["hedge_quantity"] for t in buy_transactions])
+    total_price = sum(
+        [t["hedge_cost_price"] * t["hedge_quantity"] for t in buy_transactions]
+    )
+    average_cost = total_price / total_quantity
+    return average_cost

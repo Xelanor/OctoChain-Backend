@@ -7,7 +7,12 @@ import traceback
 import ccxt
 
 from hedge_bot.models import HedgeBot, HedgeBotTx, ExchangeApi, Exchange
-from crypto.business_functions import calculate_avg_price, calculate_spread_rate
+from crypto.business_functions import (
+    calculate_avg_price,
+    calculate_spread_rate,
+    calculate_spot_fifo_average_cost,
+    calculate_hedge_fifo_average_cost,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +51,8 @@ class HedgeBotClass:
         self.max_size = self.bot.max_size
         self.control_size = self.bot.control_size
         self.tx_size = self.bot.tx_size
-        self.min_profit = self.bot.min_profit
+        self.min_open_profit = self.bot.min_open_profit
+        self.min_close_profit = self.bot.min_close_profit
 
     def setup_exchange_api(self):
         spot_apis = {}
@@ -205,10 +211,10 @@ class HedgeBotClass:
                 profit_rate = calculate_spread_rate(avg_spot_price, avg_hedge_price)
                 logger.info(f"Profit rate: {profit_rate}")
 
-                if profit_rate > self.min_profit:
+                if profit_rate > self.min_open_profit:
                     logger.info("Profitable deal found!")
                     logger.info(
-                        f"Spot-{spot_exchange} average price: {avg_spot_price} \n Hedge-{hedge_exchange} average price: {avg_hedge_price} \n Profit rate: {round(profit_rate, 2)}"
+                        f"Spot-{spot_exchange} average price: {avg_spot_price} \n Hedge-{hedge_exchange} average price: {avg_hedge_price} \n Profit rate: {round(profit_rate, 4)}"
                     )
 
                     deal = {
@@ -218,6 +224,158 @@ class HedgeBotClass:
                         "avg_hedge_price": avg_hedge_price,
                         "profit_rate": profit_rate,
                         "side": "open",
+                    }
+
+                    return deal
+        return None
+
+    def get_transactions(self, exchange, side):
+        exchange_object = Exchange.objects.get(name=exchange)
+        if side == "spot":
+            transactions = list(
+                HedgeBotTx.objects.filter(bot=self.bot, spot_exchange=exchange_object)
+                .order_by("-created_at")
+                .values()
+            )
+        elif side == "hedge":
+            transactions = list(
+                HedgeBotTx.objects.filter(bot=self.bot, hedge_exchange=exchange_object)
+                .order_by("-created_at")
+                .values()
+            )
+
+        return transactions
+
+    def is_exchange_has_open_position(self, exchange, side):
+        exchange_object = Exchange.objects.get(name=exchange)
+        position_size = 0
+        price = None
+
+        if side == "spot":
+            transactions = HedgeBotTx.objects.filter(
+                bot=self.bot, spot_exchange=exchange_object
+            )
+        elif side == "hedge":
+            transactions = HedgeBotTx.objects.filter(
+                bot=self.bot, hedge_exchange=exchange_object
+            )
+
+        for transaction in transactions:
+            price = transaction.spot_cost_price
+            if transaction.side == "open":
+                position_size += transaction.spot_quantity
+            elif transaction.side == "close":
+                position_size -= transaction.spot_quantity
+
+        if position_size > 0:
+            return position_size * price > self.tx_size
+        else:
+            return False
+
+    def get_average_costs(self, spot_exchange, hedge_exchange):
+        # TODO: ortalama hesaplarken borsa önemli mi yoksa genel ortalama mı bakılmalı
+        spot_transactions = self.get_transactions(spot_exchange, "spot")
+        hedge_transactions = self.get_transactions(hedge_exchange, "hedge")
+
+        spot_avg_cost = calculate_spot_fifo_average_cost(spot_transactions)
+        hedge_avg_cost = calculate_hedge_fifo_average_cost(hedge_transactions)
+
+        logger.info(
+            f"Spot average cost: {spot_avg_cost} \n Hedge average cost: {hedge_avg_cost}"
+        )
+        return spot_avg_cost, hedge_avg_cost
+
+    def calculate_close_profit_rate(
+        self,
+        spot_exchange,
+        hedge_exchange,
+        avg_spot_price,
+        avg_hedge_price,
+        spot_avg_cost,
+        hedge_avg_cost,
+    ):
+        spot_profit = avg_spot_price - spot_avg_cost
+        spot_fee = (
+            self.fees["spot"][spot_exchange] * avg_spot_price
+            + self.fees["spot"][spot_exchange] * spot_avg_cost
+        )
+        future_profit = hedge_avg_cost - avg_hedge_price
+        future_fee = (
+            self.fees["hedge"][hedge_exchange] * hedge_avg_cost
+            + self.fees["hedge"][hedge_exchange] * avg_hedge_price
+        )
+
+        profit = spot_profit + future_profit - spot_fee - future_fee
+        profit_rate = profit / spot_avg_cost
+
+        logger.info(
+            f"\n Spot Profit: {spot_profit} \n Future Profit: {future_profit} \n Profit: {profit} \n Profit rate: {profit_rate}"
+        )
+        return profit_rate
+
+    def find_profitable_close_deal(self):
+        spot_exchanges = self.spot_order_books.keys()
+        hedge_exchanges = self.hedge_order_books.keys()
+
+        for spot_exchange in spot_exchanges:
+            # TODO: ileride spotta olan malı apiden çekeriz
+            if not self.is_exchange_has_open_position(spot_exchange, "spot"):
+                logger.info(f"Spot-{spot_exchange} has no open positions")
+                continue
+
+            spot_depth = self.spot_order_books[spot_exchange]
+            avg_spot_price, spot_reached = calculate_avg_price(
+                spot_depth["asks"], self.control_size
+            )
+            if not spot_reached:
+                continue
+
+            logger.info(f"Spot-{spot_exchange} average price: {avg_spot_price}")
+
+            for hedge_exchange in hedge_exchanges:
+                # TODO: ileride açık pozisyonları apiden çekeriz
+                if not self.is_exchange_has_open_position(hedge_exchange, "hedge"):
+                    logger.info(f"Hedge-{hedge_exchange} has no open positions")
+                    continue
+
+                hedge_depth = self.hedge_order_books[hedge_exchange]
+
+                avg_hedge_price, hedge_reached = calculate_avg_price(
+                    hedge_depth["bids"], self.control_size
+                )
+                if not hedge_reached:
+                    continue
+
+                logger.info(f"Hedge-{hedge_exchange} average price: {avg_hedge_price}")
+
+                spot_avg_cost, hedge_avg_cost = self.get_average_costs(
+                    spot_exchange, hedge_exchange
+                )
+                profit_rate = self.calculate_close_profit_rate(
+                    spot_exchange,
+                    hedge_exchange,
+                    avg_spot_price,
+                    avg_hedge_price,
+                    spot_avg_cost,
+                    hedge_avg_cost,
+                )
+                logger.info(f"Profit rate: {profit_rate}")
+
+                if profit_rate > self.min_close_profit:
+                    logger.info("Profitable deal found!")
+                    logger.info(
+                        f"Spot-{spot_exchange} average price: {avg_spot_price} \n Hedge-{hedge_exchange} average price: {avg_hedge_price} \n Profit rate: {round(profit_rate, 4)}"
+                    )
+
+                    deal = {
+                        "spot": spot_exchange,
+                        "avg_spot_price": avg_spot_price,
+                        "avg_spot_cost": spot_avg_cost,
+                        "hedge": hedge_exchange,
+                        "avg_hedge_price": avg_hedge_price,
+                        "avg_hedge_cost": hedge_avg_cost,
+                        "profit_rate": profit_rate,
+                        "side": "close",
                     }
 
                     return deal
@@ -243,11 +401,49 @@ class HedgeBotClass:
         spot_fee = spot_quantity * spot_price * spot_fee
         hedge_fee = hedge_quantity * hedge_price * hedge_fee
 
-        fee = (spot_fee + hedge_fee) * -1
+        fee = spot_fee + hedge_fee
 
         tx = HedgeBotTx.objects.create(
             bot=self.bot,
             side="open",
+            spot_cost_price=spot_price,
+            hedge_cost_price=hedge_price,
+            spot_exchange=spot_exchange_object,
+            hedge_exchange=hedge_exchange_object,
+            spot_quantity=spot_quantity,
+            hedge_quantity=hedge_quantity,
+            fee=fee,
+        )
+
+        return tx
+
+    def create_close_transaction(self, deal, spot_order, hedge_order):
+        if deal["spot"] == "Mexc":
+            spot_order = self.spot_apis["Mexc"].fetch_order(
+                spot_order["id"], self.spot_ticker
+            )
+
+        spot_price = spot_order["average"]
+        hedge_price = hedge_order["average"]
+
+        spot_quantity = spot_order["filled"]
+        hedge_quantity = hedge_order["filled"]
+
+        spot_exchange_object = Exchange.objects.get(name=deal["spot"])
+        hedge_exchange_object = Exchange.objects.get(name=deal["hedge"])
+        spot_fee = spot_exchange_object.spot_fee
+        hedge_fee = hedge_exchange_object.future_fee
+
+        spot_fee = spot_quantity * spot_price * spot_fee
+        hedge_fee = hedge_quantity * hedge_price * hedge_fee
+
+        fee = spot_fee + hedge_fee
+
+        tx = HedgeBotTx.objects.create(
+            bot=self.bot,
+            side="close",
+            spot_cost_price=deal["avg_spot_cost"],
+            hedge_cost_price=deal["avg_hedge_cost"],
             spot_price=spot_price,
             hedge_price=hedge_price,
             spot_exchange=spot_exchange_object,
@@ -299,7 +495,38 @@ class HedgeBotClass:
         logger.info(f"Spot order: {spot_order}")
         logger.info(f"Hedge order: {hedge_order}")
         tx = self.create_open_transaction(deal, spot_order, hedge_order)
-        logger.info(f"Tx: {tx}")
+        logger.info(f"Tx: {tx.__dict__}")
+
+    def execute_close_deal(self, deal):
+        spot_exchange = deal["spot"]
+        average_spot_price = deal["avg_spot_price"]
+        hedge_exchange = deal["hedge"]
+        average_hedge_price = deal["avg_hedge_price"]
+        profit_rate = deal["profit_rate"]
+
+        tx_amount = self.tx_size / average_spot_price
+
+        spot_api = self.spot_apis[spot_exchange]
+        hedge_api = self.hedge_apis[hedge_exchange]
+
+        formatted_amount = hedge_api.amount_to_precision(self.hedge_ticker, tx_amount)
+
+        logger.info(f"Tx amount: {tx_amount} \n Formatted amount: {formatted_amount}")
+
+        # Execute Spot Order
+        spot_order = spot_api.create_market_sell_order(
+            self.spot_ticker, formatted_amount
+        )
+
+        # Execute Hedge Order
+        hedge_order = hedge_api.create_market_buy_order(
+            self.hedge_ticker, formatted_amount
+        )
+
+        logger.info(f"Spot order: {spot_order}")
+        logger.info(f"Hedge order: {hedge_order}")
+        tx = self.create_close_transaction(deal, spot_order, hedge_order)
+        logger.info(f"Tx: {tx.__dict__}")
 
     def bot_session(self):
         self.fetch_account_balances()
@@ -311,13 +538,19 @@ class HedgeBotClass:
 
         # TODO: Is total size over max size?
 
+        deal = self.find_profitable_close_deal()
+        if deal:
+            self.execute_close_deal(deal)
+            return True
+
         deal = self.find_profitable_open_deal()
         if deal:
             self.execute_open_deal(deal)
+            return True
 
     def run(self):
-        try:
-            while True:
+        while True:
+            try:
                 bot_status = self.check_bot_status()
                 if bot_status == "STOP":
                     return False
@@ -325,7 +558,8 @@ class HedgeBotClass:
                 self.set_bot_settings()
 
                 session_status = self.bot_session()
-                sleep(10)
+                sleep(3)
 
-        except:
-            logger.error(traceback.format_exc())
+            except:
+                logger.error(traceback.format_exc())
+                sleep(15)
