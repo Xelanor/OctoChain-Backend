@@ -73,8 +73,8 @@ def calculate_spot_arbitrage():
     spot = cache.get("spot")
     swap = cache.get("swap")
 
-    from_exchanges = ["Bitmart", "Mxc", "Kucoin"]
-    to_exchanges = ["Bitmart", "Mxc", "Kucoin"]
+    from_exchanges = ["Mxc", "Binance"]
+    to_exchanges = ["Mxc", "Binance"]
 
     arbitrages = []
 
@@ -86,29 +86,29 @@ def calculate_spot_arbitrage():
             continue
 
         for from_exchange, from_exchange_values in coin_exchanges.items():
-            # if from_exchange not in from_exchanges:
-            #     continue
+            if from_exchange not in from_exchanges:
+                continue
 
             for to_exchange, to_exchange_values in coin_exchanges.items():
-                if to_exchange == from_exchange:
+                if to_exchange not in to_exchanges:
+                    continue
+
+                try:
+                    hedge = swap[f"{coin_symbol}:USDT"]["exchanges"][to_exchange]
+                except:
+                    hedge = None
                     continue
 
                 try:
                     buy_price = from_exchange_values["ask"]
-                    sell_price = to_exchange_values["bid"]
+                    sell_price = hedge["bid"]
                     profit_rate = ((sell_price / buy_price) - 1) * 100
                 except:
                     continue
 
-                if 0.6 < profit_rate < 30:
-                    try:
-                        hedge = swap[f"{coin_symbol}:USDT"]["exchanges"][to_exchange]
-                    except:
-                        hedge = None
-
+                if 0.6 < profit_rate < 5:
                     arbitrage = {
                         "from": from_exchange_values,
-                        "to": to_exchange_values,
                         "profit_rate": profit_rate,
                         "hedge": hedge,
                     }
@@ -126,31 +126,24 @@ def spot_arbitrage_opportunuties():
 
     opportunuties = []
     desired_budget_levels = [
-        {"budget": 500, "profit_rate": 0.005},
-        {"budget": 1000, "profit_rate": 0.005},
-        {"budget": 2000, "profit_rate": 0.004},
+        {"budget": 50, "profit_rate": 0.008},
+        {"budget": 100, "profit_rate": 0.007},
+        {"budget": 200, "profit_rate": 0.006},
     ]
-    max_profit_rate = 0.3
+    max_profit_rate = 0.05
 
     for arbitrage in arbitrages:
         symbol = arbitrage["from"]["symbol"]
         from_exchange_values = arbitrage["from"]
-        to_exchange_values = arbitrage["to"]
         hedge_exchange_values = arbitrage["hedge"]
 
         from_exchange = from_exchange_values["exchange"]
-        to_exchange = to_exchange_values["exchange"]
-
-        if not hedge_exchange_values:
-            continue
+        to_exchange = hedge_exchange_values["exchange"]
 
         try:
             from_exc_asks = exchange_functions[from_exchange]["spot"].fetch_order_book(
                 symbol, limit=20
             )["asks"]
-            to_exc_bids = exchange_functions[to_exchange]["spot"].fetch_order_book(
-                symbol, limit=20
-            )["bids"]
             hedge_bids = exchange_functions[to_exchange]["swap"].fetch_order_book(
                 f"{symbol}:USDT", limit=20
             )["bids"]
@@ -164,35 +157,24 @@ def spot_arbitrage_opportunuties():
             avg_ask, ask_reached = calculate_avg_price(
                 from_exc_asks, budget_level["budget"]
             )
-            avg_bid, bid_reached = calculate_avg_price(
-                to_exc_bids, budget_level["budget"]
-            )
             avg_hedge_bid, hedge_bid_reached = calculate_avg_price(
                 hedge_bids, budget_level["budget"]
             )
-            if ask_reached and bid_reached and hedge_bid_reached:
+            if ask_reached and hedge_bid_reached:
                 nominal_profit = (
-                    budget_level["budget"] / avg_ask * avg_bid - budget_level["budget"]
+                    budget_level["budget"] / avg_ask * avg_hedge_bid
+                    - budget_level["budget"]
                 )
                 # real_profit = nominal_profit - fee if fee else nominal_profit
                 real_profit = nominal_profit
 
-                hedge_real_profit = (
-                    budget_level["budget"] / avg_ask * avg_hedge_bid
-                ) - budget_level["budget"]
-
-                spot_profitable = (
+                profitable = (
                     budget_level["profit_rate"]
                     < real_profit / budget_level["budget"]
                     < max_profit_rate
                 )
-                hedge_profitable = (
-                    budget_level["profit_rate"]
-                    < hedge_real_profit / budget_level["budget"]
-                    < max_profit_rate
-                )
 
-                if spot_profitable and hedge_profitable:
+                if profitable:
                     found += 1
             else:
                 real_profit = 0
@@ -203,8 +185,7 @@ def spot_arbitrage_opportunuties():
                     "profit_rate": real_profit / budget_level["budget"],
                     "profit": real_profit,
                     "buy_price": determine_price_str(avg_ask),
-                    "sell_price": determine_price_str(avg_bid),
-                    "hedge_price": determine_price_str(avg_hedge_bid),
+                    "sell_price": determine_price_str(avg_hedge_bid),
                 }
             )
 
@@ -212,7 +193,6 @@ def spot_arbitrage_opportunuties():
             arb_opportunity = {
                 "symbol": symbol,
                 "from": from_exchange_values,
-                "to": to_exchange_values,
                 "hedge": hedge_exchange_values,
                 "budget_levels": budget_levels,
             }
