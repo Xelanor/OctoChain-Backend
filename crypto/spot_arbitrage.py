@@ -1,3 +1,4 @@
+import traceback
 import datetime
 from django.core.cache import cache
 import ccxt
@@ -70,49 +71,52 @@ def spot_arb_details(symbol, from_exc, to_exc, hedge_symbol, hedge_exc):
 
 
 def calculate_spot_arbitrage():
-    spot = cache.get("spot")
-    swap = cache.get("swap")
+    try:
+        spot = cache.get("spot")
+        swap = cache.get("swap")
 
-    from_exchanges = ["Mxc", "Binance"]
-    to_exchanges = ["Mxc", "Binance"]
+        from_exchanges = ["Mxc", "Binance"]
+        to_exchanges = ["Mxc", "Binance"]
 
-    arbitrages = []
+        arbitrages = []
 
-    for coin in spot.values():
-        coin_symbol = coin["symbol"]
-        coin_exchanges = coin["exchanges"]
+        for coin in spot.values():
+            coin_symbol = coin["symbol"]
+            coin_exchanges = coin["exchanges"]
 
-        if coin["quote"] != "USDT":
-            continue
-
-        for from_exchange, from_exchange_values in coin_exchanges.items():
-            if from_exchange not in from_exchanges:
+            if coin["quote"] != "USDT":
                 continue
 
-            for to_exchange, to_exchange_values in coin_exchanges.items():
-                if to_exchange not in to_exchanges:
+            for from_exchange, from_exchange_values in coin_exchanges.items():
+                if from_exchange not in from_exchanges:
                     continue
 
-                try:
-                    hedge = swap[f"{coin_symbol}:USDT"]["exchanges"][to_exchange]
-                except:
-                    hedge = None
-                    continue
+                for to_exchange, to_exchange_values in coin_exchanges.items():
+                    if to_exchange not in to_exchanges:
+                        continue
 
-                try:
-                    buy_price = from_exchange_values["ask"]
-                    sell_price = hedge["bid"]
-                    profit_rate = ((sell_price / buy_price) - 1) * 100
-                except:
-                    continue
+                    try:
+                        hedge = swap[f"{coin_symbol}:USDT"]["exchanges"][to_exchange]
+                    except:
+                        hedge = None
+                        continue
 
-                if 0.6 < profit_rate < 5:
-                    arbitrage = {
-                        "from": from_exchange_values,
-                        "profit_rate": profit_rate,
-                        "hedge": hedge,
-                    }
-                    arbitrages.append(arbitrage)
+                    try:
+                        buy_price = from_exchange_values["ask"]
+                        sell_price = hedge["bid"]
+                        profit_rate = ((sell_price / buy_price) - 1) * 100
+                    except:
+                        continue
+
+                    if 0.6 < profit_rate < 5:
+                        arbitrage = {
+                            "from": from_exchange_values,
+                            "profit_rate": profit_rate,
+                            "hedge": hedge,
+                        }
+                        arbitrages.append(arbitrage)
+    except:
+        print(traceback.format_exc())
 
     return arbitrages
 
