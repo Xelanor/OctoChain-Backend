@@ -103,7 +103,7 @@ def calculate_spot_arbitrage():
 
                     try:
                         buy_price = from_exchange_values["ask"]
-                        sell_price = hedge["bid"]
+                        sell_price = hedge["bid"] if hedge["bid"] else hedge["last"]
                         profit_rate = ((sell_price / buy_price) - 1) * 100
                     except:
                         continue
