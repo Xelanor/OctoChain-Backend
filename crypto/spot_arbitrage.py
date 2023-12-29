@@ -75,8 +75,8 @@ def calculate_spot_arbitrage():
         spot = cache.get("spot")
         swap = cache.get("swap")
 
-        from_exchanges = ["mexc", "binance"]
-        to_exchanges = ["binance"]
+        from_exchanges = ["mexc", "binance", "gate"]
+        to_exchanges = ["binance", "gate"]
 
         arbitrages = []
 
