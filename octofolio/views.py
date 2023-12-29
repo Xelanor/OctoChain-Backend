@@ -107,3 +107,28 @@ def get_portfolios(request):
         portfolios.append(portfolio)
 
     return Response(portfolios)
+
+
+@api_view(["GET"])
+def get_assets_price_list(request):
+    spot = cache.get("spot")
+
+    assets_price_list = []
+
+    asset_objects = Asset.objects.all()
+    for asset_object in asset_objects:
+        asset_symbol = asset_object.symbol
+
+        asset_ticker = f"{asset_symbol}/USDT"
+        asset_price = spot[asset_ticker]["price"]
+
+        asset = {
+            "symbol": asset_symbol,
+            "name": asset_object.name,
+            "price": asset_price,
+            "logo": asset_object.logo,
+        }
+
+        assets_price_list.append(asset)
+
+    return Response(assets_price_list)
