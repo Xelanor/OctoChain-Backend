@@ -53,18 +53,16 @@ def initialize_exchange_functions():
     return exchange_functions
 
 
-def spot_arb_details(symbol, from_exc, to_exc, hedge_symbol, hedge_exc):
+def spot_arb_details(symbol, from_exc, hedge_symbol, hedge_exc):
     exchange_functions = initialize_exchange_functions()
 
     from_board = exchange_functions[from_exc]["spot"].fetch_order_book(symbol, limit=20)
-    to_board = exchange_functions[to_exc]["spot"].fetch_order_book(symbol, limit=20)
     hedge_board = exchange_functions[hedge_exc]["swap"].fetch_order_book(
         hedge_symbol, limit=20
     )
 
     details = {
         "from_board": from_board,
-        "to_board": to_board,
         "hedge_board": hedge_board,
     }
     return details

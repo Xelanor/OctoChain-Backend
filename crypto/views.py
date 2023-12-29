@@ -55,10 +55,9 @@ def spot_arb_details_view(request):
         body = request.data
         symbol = body["symbol"]
         from_exc = body["from_exc"]
-        to_exc = body["to_exc"]
         hedge_symbol = body["hedge_symbol"]
         hedge_exc = body["hedge_exc"]
 
-        details = spot_arb_details(symbol, from_exc, to_exc, hedge_symbol, hedge_exc)
+        details = spot_arb_details(symbol, from_exc, hedge_symbol, hedge_exc)
 
         return Response({"details": details})
