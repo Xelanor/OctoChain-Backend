@@ -20,4 +20,5 @@ def on_celery_setup_logging(**kwargs):
 def at_start(sender, **k):
     with sender.app.connection() as conn:
         # sender.app.send_task("hedge_bot.tasks.run_hedge_bot")
+        # sender.app.send_task("hedge_bot.tasks.run_hedge_open_bot")
         pass

@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils.timezone import now
+from django.core.exceptions import ValidationError
 
 
 User = get_user_model()
@@ -13,9 +14,12 @@ class Exchange(models.Model):
     exchange_id = models.CharField(max_length=255, unique=True)
     spot_fee = models.FloatField(default=0.001)
     future_fee = models.FloatField(default=0.0005)
+    spot = models.BooleanField(default=True)
+    future = models.BooleanField(default=True)
+    logo = models.URLField(null=True, blank=True)
 
     def __str__(self):
-        return f"{self.name} - spot: {self.spot_fee} - future: {self.future_fee}"
+        return f"{self.name}- Spot: {self.spot} - Future: {self.future}"
 
 
 class ExchangeApi(models.Model):
@@ -54,8 +58,31 @@ class HedgeBot(models.Model):
     min_close_profit = models.FloatField(default=0.005)
     created_at = models.DateTimeField(default=now)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "tick"],
+                condition=models.Q(status=True),
+                name="unique_active_tick_per_user",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.status == "1"
+            and HedgeBot.objects.exclude(pk=self.pk)
+            .filter(user=self.user, tick=self.tick, status=True)
+            .exists()
+        ):
+            raise ValidationError("You already have an active bot with this tick.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.user} - {self.tick}"
+        return f"{self.user} - {self.tick} - {self.status}"
 
 
 class HedgeBotTx(models.Model):
@@ -85,3 +112,21 @@ class HedgeBotTx(models.Model):
 
     def __str__(self):
         return f"{self.bot} - {self.side} - {self.created_at}"
+
+
+class HedgeBotBlacklist(models.Model):
+    """HedgeBot blacklist model"""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    tick = models.CharField(max_length=255)
+    spot_exchange = models.ForeignKey(
+        Exchange, on_delete=models.CASCADE, related_name="blacklist_spot_exchange"
+    )
+    hedge_exchange = models.ForeignKey(
+        Exchange, on_delete=models.CASCADE, related_name="blacklist_hedge_exchange"
+    )
+    until_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.tick} - {self.spot_exchange.name} - {self.hedge_exchange.name}"

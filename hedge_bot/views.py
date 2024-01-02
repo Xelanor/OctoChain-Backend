@@ -3,8 +3,11 @@ from rest_framework.decorators import api_view
 from django.utils.timezone import now
 from django.core.cache import cache
 
-from hedge_bot.models import HedgeBot, HedgeBotTx
+from hedge_bot.models import HedgeBot, HedgeBotTx, Exchange, ExchangeApi
 from octofolio.models import Asset
+from hedge_bot.tasks import run_hedge_bot as run_hedge_bot_task
+
+import ccxt
 
 
 @api_view(["GET"])
@@ -14,7 +17,7 @@ def get_hedge_bots(request):
 
     hedge_bots = []
 
-    hedge_bot_objects = HedgeBot.objects.all()
+    hedge_bot_objects = HedgeBot.objects.filter().order_by("-created_at")
     for hedge_bot_object in hedge_bot_objects:
         hedge_bot_id = hedge_bot_object.id
         hedge_bot_tick = hedge_bot_object.tick
@@ -119,3 +122,83 @@ def get_hedge_bots(request):
         hedge_bots.append(hedge_bot)
 
     return Response(hedge_bots)
+
+
+@api_view(["GET"])
+def get_exchange_funds(request):
+    funds = []
+    apis = ExchangeApi.objects.all()
+
+    for exchange_api in apis:
+        exchange = exchange_api.exchange
+        exchange_id = exchange.exchange_id
+        exchange_name = exchange.name
+
+        public_key = exchange_api.public_key
+        private_key = exchange_api.private_key
+        group = exchange_api.group
+
+        params = {
+            "apiKey": public_key,
+            "secret": private_key,
+            "password": group,
+            "options": {
+                "defaultType": None,
+            },
+        }
+        if exchange_id == "bitmart":
+            params["uid"] = group
+
+        fund = {
+            "id": exchange_id,
+            "name": exchange_name,
+            "logo": exchange.logo,
+            "spot_fund": None,
+            "future_fund": None,
+        }
+
+        if exchange_api.exchange.spot:
+            params["options"]["defaultType"] = "spot"
+            exchange_class = getattr(ccxt, exchange_id)
+            exchange_class = exchange_class(params)
+            exchange_class.markets = cache.get(f"{exchange_id}_markets")
+
+            spot_balance = exchange_class.fetch_balance()
+
+            try:
+                usdt = {
+                    "available": spot_balance["USDT"]["free"],
+                    "total": spot_balance["USDT"]["total"],
+                }
+            except KeyError:
+                usdt = {"available": 0, "total": 0}
+
+            fund["spot_fund"] = usdt
+
+        if exchange_api.exchange.future:
+            params["options"]["defaultType"] = "swap"
+            exchange_class = getattr(ccxt, exchange_id)
+            exchange_class = exchange_class(params)
+            exchange_class.markets = cache.get(f"{exchange_id}_markets")
+
+            future_balance = exchange_class.fetch_balance()
+            try:
+                usdt = {
+                    "available": future_balance["USDT"]["free"],
+                    "total": future_balance["USDT"]["total"],
+                }
+            except KeyError:
+                usdt = {"available": 0, "total": 0}
+
+            fund["future_fund"] = usdt
+
+        funds.append(fund)
+
+    return Response(funds)
+
+
+@api_view(["GET"])
+def run_hedge_bot(request):
+    run_hedge_bot_task.delay(282)
+
+    return Response({"status": "success"})

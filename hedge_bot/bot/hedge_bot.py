@@ -1,8 +1,11 @@
 import logging
 from time import sleep
 from datetime import datetime, timedelta
+from django.utils.timezone import now
 import os
 import traceback
+from django.core.cache import cache
+
 
 import ccxt
 
@@ -46,6 +49,30 @@ class HedgeBotClass:
 
         return status
 
+    def check_idle_status(self):
+        idle = True
+        for exc in self.hedge_apis:
+            if self.is_exchange_has_open_position(exc, "hedge"):
+                idle = False
+
+        if idle:
+            try:
+                last_tx_date = (
+                    HedgeBotTx.objects.filter(bot=self.bot)
+                    .order_by("-created_at")
+                    .first()
+                    .created_at
+                )
+            except:
+                last_tx_date = self.bot.created_at
+
+            idle_time = now() - last_tx_date
+
+            if idle_time > timedelta(minutes=180):
+                self.bot.status = False
+                self.bot.save()
+                return True
+
     def set_bot_settings(self):
         self.settings = self.bot.settings
         self.max_size = self.bot.max_size
@@ -60,8 +87,11 @@ class HedgeBotClass:
         fees = {"spot": {}, "hedge": {}}
         bot_exchanges = self.bot.exchanges
 
-        for bot_exchange in bot_exchanges:
-            exchange_object = Exchange.objects.get(name=bot_exchange)
+        for bot_exchange in bot_exchanges["spot"]:
+            if bot_exchanges["spot"][bot_exchange] == False:
+                continue
+
+            exchange_object = Exchange.objects.get(exchange_id=bot_exchange)
             exchange_api = ExchangeApi.objects.get(
                 user=self.bot.user, exchange=exchange_object
             )
@@ -75,27 +105,48 @@ class HedgeBotClass:
                 "secret": private_key,
                 "password": group,
                 "options": {
-                    "defaultType": None,
+                    "defaultType": "spot",
                 },
             }
 
-            if self.bot.exchanges[bot_exchange]["spot"]:
-                params["options"]["defaultType"] = "spot"
-                exchange_class = getattr(ccxt, exchange_object.exchange_id)
-                exchange_class = exchange_class(params)
-                markets = exchange_class.load_markets()
+            if bot_exchange == "bitmart":
+                params["uid"] = group
 
-                spot_apis[bot_exchange] = exchange_class
-                fees["spot"][bot_exchange] = exchange_object.spot_fee
+            exchange_class = getattr(ccxt, bot_exchange)
+            exchange_class = exchange_class(params)
+            exchange_class.markets = cache.get(f"{bot_exchange}_markets")
 
-            if self.bot.exchanges[bot_exchange]["hedge"]:
-                params["options"]["defaultType"] = "swap"
-                exchange_class = getattr(ccxt, exchange_object.exchange_id)
-                exchange_class = exchange_class(params)
-                markets = exchange_class.load_markets()
+            spot_apis[bot_exchange] = exchange_class
+            fees["spot"][bot_exchange] = exchange_object.spot_fee
 
-                hedge_apis[bot_exchange] = exchange_class
-                fees["hedge"][bot_exchange] = exchange_object.future_fee
+        for bot_exchange in bot_exchanges["hedge"]:
+            if bot_exchanges["hedge"][bot_exchange] == False:
+                continue
+
+            exchange_object = Exchange.objects.get(exchange_id=bot_exchange)
+            exchange_api = ExchangeApi.objects.get(
+                user=self.bot.user, exchange=exchange_object
+            )
+
+            public_key = exchange_api.public_key
+            private_key = exchange_api.private_key
+            group = exchange_api.group
+
+            params = {
+                "apiKey": public_key,
+                "secret": private_key,
+                "password": group,
+                "options": {
+                    "defaultType": "swap",
+                },
+            }
+
+            exchange_class = getattr(ccxt, bot_exchange)
+            exchange_class = exchange_class(params)
+            exchange_class.markets = cache.get(f"{bot_exchange}_markets")
+
+            hedge_apis[bot_exchange] = exchange_class
+            fees["hedge"][bot_exchange] = exchange_object.future_fee
 
         return spot_apis, hedge_apis, fees
 
@@ -189,7 +240,7 @@ class HedgeBotClass:
             if not spot_reached:
                 continue
 
-            logger.info(f"Spot-{spot_exchange} average price: {avg_spot_price}")
+            logger.info(f"Spot-{spot_exchange} avg price: {avg_spot_price}")
 
             for hedge_exchange in hedge_exchanges:
                 if (
@@ -206,15 +257,15 @@ class HedgeBotClass:
                 if not hedge_reached:
                     continue
 
-                logger.info(f"Hedge-{hedge_exchange} average price: {avg_hedge_price}")
+                logger.info(f"Hedge-{hedge_exchange} avg price: {avg_hedge_price}")
 
                 profit_rate = calculate_spread_rate(avg_spot_price, avg_hedge_price)
-                logger.info(f"Profit rate: {profit_rate}")
+                logger.info(f"\n Deal OPEN Profit rate: {round(profit_rate * 100, 2)}%")
 
                 if profit_rate > self.min_open_profit:
                     logger.info("Profitable deal found!")
                     logger.info(
-                        f"Spot-{spot_exchange} average price: {avg_spot_price} \n Hedge-{hedge_exchange} average price: {avg_hedge_price} \n Profit rate: {round(profit_rate, 4)}"
+                        f"Spot-{spot_exchange} avg price: {avg_spot_price} \n Hedge-{hedge_exchange} avg price: {avg_hedge_price}"
                     )
 
                     deal = {
@@ -230,24 +281,24 @@ class HedgeBotClass:
         return None
 
     def get_transactions(self, exchange, side):
-        exchange_object = Exchange.objects.get(name=exchange)
+        exchange_object = Exchange.objects.get(exchange_id=exchange)
         if side == "spot":
             transactions = list(
                 HedgeBotTx.objects.filter(bot=self.bot, spot_exchange=exchange_object)
-                .order_by("-created_at")
+                .order_by("created_at")
                 .values()
             )
         elif side == "hedge":
             transactions = list(
                 HedgeBotTx.objects.filter(bot=self.bot, hedge_exchange=exchange_object)
-                .order_by("-created_at")
+                .order_by("created_at")
                 .values()
             )
 
         return transactions
 
     def is_exchange_has_open_position(self, exchange, side):
-        exchange_object = Exchange.objects.get(name=exchange)
+        exchange_object = Exchange.objects.get(exchange_id=exchange)
         position_size = 0
         price = None
 
@@ -268,9 +319,32 @@ class HedgeBotClass:
                 position_size -= transaction.spot_quantity
 
         if position_size > 0:
-            return position_size * price > self.tx_size
+            return position_size * price > self.tx_size * 0.8
         else:
             return False
+
+    def total_open_position_size(self, exchange, side):
+        exchange_object = Exchange.objects.get(exchange_id=exchange)
+        position_size = 0
+        price = None
+
+        if side == "spot":
+            transactions = HedgeBotTx.objects.filter(
+                bot=self.bot, spot_exchange=exchange_object
+            )
+        elif side == "hedge":
+            transactions = HedgeBotTx.objects.filter(
+                bot=self.bot, hedge_exchange=exchange_object
+            )
+
+        for transaction in transactions:
+            price = transaction.spot_cost_price
+            if transaction.side == "open":
+                position_size += transaction.spot_quantity
+            elif transaction.side == "close":
+                position_size -= transaction.spot_quantity
+
+        return position_size
 
     def get_average_costs(self, spot_exchange, hedge_exchange):
         # TODO: ortalama hesaplarken borsa önemli mi yoksa genel ortalama mı bakılmalı
@@ -308,9 +382,6 @@ class HedgeBotClass:
         profit = spot_profit + future_profit - spot_fee - future_fee
         profit_rate = profit / spot_avg_cost
 
-        logger.info(
-            f"\n Spot Profit: {spot_profit} \n Future Profit: {future_profit} \n Profit: {profit} \n Profit rate: {profit_rate}"
-        )
         return profit_rate
 
     def find_profitable_close_deal(self):
@@ -320,12 +391,12 @@ class HedgeBotClass:
         for spot_exchange in spot_exchanges:
             # TODO: ileride spotta olan malı apiden çekeriz
             if not self.is_exchange_has_open_position(spot_exchange, "spot"):
-                logger.info(f"Spot-{spot_exchange} has no open positions")
+                logger.debug(f"Spot-{spot_exchange} has no open positions")
                 continue
 
             spot_depth = self.spot_order_books[spot_exchange]
             avg_spot_price, spot_reached = calculate_avg_price(
-                spot_depth["asks"], self.control_size
+                spot_depth["bids"], self.control_size
             )
             if not spot_reached:
                 continue
@@ -335,13 +406,13 @@ class HedgeBotClass:
             for hedge_exchange in hedge_exchanges:
                 # TODO: ileride açık pozisyonları apiden çekeriz
                 if not self.is_exchange_has_open_position(hedge_exchange, "hedge"):
-                    logger.info(f"Hedge-{hedge_exchange} has no open positions")
+                    logger.debug(f"Hedge-{hedge_exchange} has no open positions")
                     continue
 
                 hedge_depth = self.hedge_order_books[hedge_exchange]
 
                 avg_hedge_price, hedge_reached = calculate_avg_price(
-                    hedge_depth["bids"], self.control_size
+                    hedge_depth["asks"], self.control_size
                 )
                 if not hedge_reached:
                     continue
@@ -359,12 +430,14 @@ class HedgeBotClass:
                     spot_avg_cost,
                     hedge_avg_cost,
                 )
-                logger.info(f"Profit rate: {profit_rate}")
+                logger.info(
+                    f"\n Deal CLOSE Profit rate: {round(profit_rate * 100, 2)}%"
+                )
 
                 if profit_rate > self.min_close_profit:
                     logger.info("Profitable deal found!")
                     logger.info(
-                        f"Spot-{spot_exchange} average price: {avg_spot_price} \n Hedge-{hedge_exchange} average price: {avg_hedge_price} \n Profit rate: {round(profit_rate, 4)}"
+                        f"\n Spot-{spot_exchange} avg price: {avg_spot_price} \n Hedge-{hedge_exchange} avg price: {avg_hedge_price}"
                     )
 
                     deal = {
@@ -382,19 +455,25 @@ class HedgeBotClass:
         return None
 
     def create_open_transaction(self, deal, spot_order, hedge_order):
-        if deal["spot"] == "Mexc":
-            spot_order = self.spot_apis["Mexc"].fetch_order(
+        if deal["spot"] in ["mexc", "bitmart", "kucoin"]:
+            spot_order = self.spot_apis[deal["spot"]].fetch_order(
                 spot_order["id"], self.spot_ticker
             )
+            logger.info(f"Spot order: {spot_order}")
 
         spot_price = spot_order["average"]
         hedge_price = hedge_order["average"]
 
         spot_quantity = spot_order["filled"]
         hedge_quantity = hedge_order["filled"]
+        if deal["hedge"] == "gate":
+            contract_size = self.hedge_apis["gate"].markets[self.hedge_ticker][
+                "contractSize"
+            ]
+            hedge_quantity = hedge_order["filled"] * contract_size
 
-        spot_exchange_object = Exchange.objects.get(name=deal["spot"])
-        hedge_exchange_object = Exchange.objects.get(name=deal["hedge"])
+        spot_exchange_object = Exchange.objects.get(exchange_id=deal["spot"])
+        hedge_exchange_object = Exchange.objects.get(exchange_id=deal["hedge"])
         spot_fee = spot_exchange_object.spot_fee
         hedge_fee = hedge_exchange_object.future_fee
 
@@ -418,19 +497,25 @@ class HedgeBotClass:
         return tx
 
     def create_close_transaction(self, deal, spot_order, hedge_order):
-        if deal["spot"] == "Mexc":
-            spot_order = self.spot_apis["Mexc"].fetch_order(
+        if deal["spot"] in ["mexc", "bitmart", "kucoin"]:
+            spot_order = self.spot_apis[deal["spot"]].fetch_order(
                 spot_order["id"], self.spot_ticker
             )
+            logger.info(f"Spot order: {spot_order}")
 
         spot_price = spot_order["average"]
         hedge_price = hedge_order["average"]
 
         spot_quantity = spot_order["filled"]
         hedge_quantity = hedge_order["filled"]
+        if deal["hedge"] == "gate":
+            contract_size = self.hedge_apis["gate"].markets[self.hedge_ticker][
+                "contractSize"
+            ]
+            hedge_quantity = hedge_order["filled"] * contract_size
 
-        spot_exchange_object = Exchange.objects.get(name=deal["spot"])
-        hedge_exchange_object = Exchange.objects.get(name=deal["hedge"])
+        spot_exchange_object = Exchange.objects.get(exchange_id=deal["spot"])
+        hedge_exchange_object = Exchange.objects.get(exchange_id=deal["hedge"])
         spot_fee = spot_exchange_object.spot_fee
         hedge_fee = hedge_exchange_object.future_fee
 
@@ -469,12 +554,12 @@ class HedgeBotClass:
 
         formatted_amount = hedge_api.amount_to_precision(self.hedge_ticker, tx_amount)
 
-        logger.info(f"Tx amount: {tx_amount} \n Formatted amount: {formatted_amount}")
+        logger.info(f"\n Formatted amount: {formatted_amount}")
 
         ### Some exchanges market buy order requires price argument
         spot_order_type = "market"
         price = None
-        if spot_exchange == "Mexc":
+        if spot_exchange in ["mexc", "gate", "bitmart"]:
             spot_order_type = "limit"
             price = average_spot_price * 1.02
 
@@ -484,9 +569,19 @@ class HedgeBotClass:
         )
 
         # Execute Hedge Order
-        leverage = 1
-        response = hedge_api.set_leverage(leverage, self.hedge_ticker)
-        response = hedge_api.set_margin_mode("ISOLATED", self.hedge_ticker)
+        try:
+            leverage = 1
+            response = hedge_api.set_leverage(leverage, self.hedge_ticker)
+            response = hedge_api.set_margin_mode("ISOLATED", self.hedge_ticker)
+        except:
+            pass
+
+        if hedge_exchange == "gate":
+            contract_size = hedge_api.markets[self.hedge_ticker]["contractSize"]
+            formatted_amount = float(formatted_amount) / contract_size
+            formatted_amount = hedge_api.amount_to_precision(
+                self.hedge_ticker, formatted_amount
+            )
 
         hedge_order = hedge_api.create_market_sell_order(
             self.hedge_ticker, formatted_amount
@@ -504,19 +599,27 @@ class HedgeBotClass:
         average_hedge_price = deal["avg_hedge_price"]
         profit_rate = deal["profit_rate"]
 
-        tx_amount = self.tx_size / average_spot_price
+        open_position_size = self.total_open_position_size(hedge_exchange, "hedge")
+        tx_amount = min(open_position_size, self.tx_size / average_spot_price)
 
         spot_api = self.spot_apis[spot_exchange]
         hedge_api = self.hedge_apis[hedge_exchange]
 
         formatted_amount = hedge_api.amount_to_precision(self.hedge_ticker, tx_amount)
 
-        logger.info(f"Tx amount: {tx_amount} \n Formatted amount: {formatted_amount}")
+        logger.info(f"\n Formatted amount: {formatted_amount}")
 
         # Execute Spot Order
         spot_order = spot_api.create_market_sell_order(
             self.spot_ticker, formatted_amount
         )
+
+        if hedge_exchange == "gate":
+            contract_size = hedge_api.markets[self.hedge_ticker]["contractSize"]
+            formatted_amount = float(formatted_amount) / contract_size
+            formatted_amount = hedge_api.amount_to_precision(
+                self.hedge_ticker, formatted_amount
+            )
 
         # Execute Hedge Order
         hedge_order = hedge_api.create_market_buy_order(
@@ -556,6 +659,7 @@ class HedgeBotClass:
                     return False
 
                 self.set_bot_settings()
+                self.check_idle_status()
 
                 session_status = self.bot_session()
                 sleep(3)

@@ -17,6 +17,7 @@ exchanges = {
     "gate": {"types": {"spot": None, "swap": None, "future": None}},
     "mexc": {"types": {"spot": None, "swap": None, "future": None}},
     "bitmart": {"types": {"spot": None, "swap": None, "future": None}},
+    "kucoin": {"types": {"spot": None, "swap": None, "future": None}},
 }
 
 

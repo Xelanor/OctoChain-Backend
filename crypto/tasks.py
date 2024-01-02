@@ -26,6 +26,7 @@ exchanges = {
     "gate": {"types": {"spot": None, "swap": None, "future": None}},
     "mexc": {"types": {"spot": None, "swap": None, "future": None}},
     "bitmart": {"types": {"spot": None, "swap": None, "future": None}},
+    "kucoin": {"types": {"spot": None}},
 }
 
 
@@ -34,7 +35,7 @@ def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(120, fetch_exchange_markets.s())
     sender.add_periodic_task(20, fetch_exchange_prices.s())
     sender.add_periodic_task(15, create_data.s())
-    sender.add_periodic_task(20, spot_arbitrage_opportunuties.s())
+    # sender.add_periodic_task(20, spot_arbitrage_opportunuties.s())
 
 
 @app.task
@@ -70,15 +71,22 @@ def fetch_exchange_market(exchange_id):
                 "password": "bot",
             }
 
+        elif exchange_id == "kucoin":
+            params = {
+                "apiKey": "659109a03bc2270001a9a8eb",
+                "secret": "f680fa71-57ce-4fcf-a03e-f45ea2681640",
+                "password": "hedgebot",
+            }
+
         exchange_class = getattr(ccxt, exchange_id)
         exchange = exchange_class(params)
         markets = exchange.load_markets()
         currencies = exchange.currencies
         markets_by_id = exchange.markets_by_id
 
-        cache.set(f"{exchange_id}_markets", markets, 300)
-        cache.set(f"{exchange_id}_currencies", currencies, 300)
-        cache.set(f"{exchange_id}_markets_by_id", markets_by_id, 300)
+        cache.set(f"{exchange_id}_markets", markets, 60 * 60)
+        cache.set(f"{exchange_id}_currencies", currencies, 60 * 60)
+        cache.set(f"{exchange_id}_markets_by_id", markets_by_id, 60 * 60)
         logger.info(f"{exchange_id} markets set!")
     except:
         logger.error(traceback.format_exc())
@@ -124,7 +132,7 @@ def fetch_exchange_price(exchange_id, values):
                 prices = {}
 
             cache.set(f"{exchange_id}_{_type}_prices", prices, 300)
-            logger.info(f"{exchange_id} {_type} prices set!")
+            logger.debug(f"{exchange_id} {_type} prices set!")
     except:
         logger.error(traceback.format_exc())
 
