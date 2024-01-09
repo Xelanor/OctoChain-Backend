@@ -13,6 +13,10 @@ def create_empty_exchange_dict(prices, _dict, exchange):
 def insert_exchange_market_details(markets, _dict, exchange):
     for ticker, values in markets.items():
         try:
+            if values["active"] == False:
+                _dict[ticker]["exchanges"].pop(exchange, None)
+                continue
+
             exc_dict = _dict[ticker]["exchanges"][exchange]
             exc_dict["symbol"] = values["symbol"]
             exc_dict["exchange"] = exchange
@@ -85,27 +89,30 @@ def define_best_exchanges_for_tickers(_dict):
 
 def insert_common_details(_dict):
     for ticker, values in _dict.items():
-        best_exchange = values["exchange"]
-        values["symbol"] = values["exchanges"][best_exchange]["symbol"]
-        values["base"] = values["exchanges"][best_exchange]["base"]
-        values["quote"] = values["exchanges"][best_exchange]["quote"]
-        values["type"] = values["exchanges"][best_exchange]["type"]
-        values["price"] = values["exchanges"][best_exchange]["last"]
-        values["change"] = values["exchanges"][best_exchange]["change"]
-        values["percentage"] = values["exchanges"][best_exchange]["percentage"]
-        values["baseVolume"] = values["exchanges"][best_exchange]["baseVolume"]
-        values["quoteVolume"] = values["exchanges"][best_exchange]["quoteVolume"]
-        values["totalBaseVolume"] = sum(
-            [
-                values["exchanges"][exc]["baseVolume"]
-                for exc in values["exchanges"]
-                if values["exchanges"][exc]["baseVolume"] != None
-            ]
-        )
-        values["totalQuoteVolume"] = sum(
-            [
-                values["exchanges"][exc]["quoteVolume"]
-                for exc in values["exchanges"]
-                if values["exchanges"][exc]["quoteVolume"] != None
-            ]
-        )
+        try:
+            best_exchange = values["exchange"]
+            values["symbol"] = values["exchanges"][best_exchange]["symbol"]
+            values["base"] = values["exchanges"][best_exchange]["base"]
+            values["quote"] = values["exchanges"][best_exchange]["quote"]
+            values["type"] = values["exchanges"][best_exchange]["type"]
+            values["price"] = values["exchanges"][best_exchange]["last"]
+            values["change"] = values["exchanges"][best_exchange]["change"]
+            values["percentage"] = values["exchanges"][best_exchange]["percentage"]
+            values["baseVolume"] = values["exchanges"][best_exchange]["baseVolume"]
+            values["quoteVolume"] = values["exchanges"][best_exchange]["quoteVolume"]
+            values["totalBaseVolume"] = sum(
+                [
+                    values["exchanges"][exc]["baseVolume"]
+                    for exc in values["exchanges"]
+                    if values["exchanges"][exc]["baseVolume"] != None
+                ]
+            )
+            values["totalQuoteVolume"] = sum(
+                [
+                    values["exchanges"][exc]["quoteVolume"]
+                    for exc in values["exchanges"]
+                    if values["exchanges"][exc]["quoteVolume"] != None
+                ]
+            )
+        except:
+            continue

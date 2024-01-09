@@ -176,13 +176,19 @@ def create_data():
                 insert_common_details(future)
 
         spot = {
-            key: value for key, value in spot.items() if value.get("type") == "spot"
+            key: value
+            for key, value in spot.items()
+            if value.get("type") == "spot" and len(value.get("exchanges")) > 0
         }
         swap = {
-            key: value for key, value in swap.items() if value.get("type") == "swap"
+            key: value
+            for key, value in swap.items()
+            if value.get("type") == "swap" and len(value.get("exchanges")) > 0
         }
         future = {
-            key: value for key, value in future.items() if value.get("type") == "future"
+            key: value
+            for key, value in future.items()
+            if value.get("type") == "future" and len(value.get("exchanges")) > 0
         }
 
         cache.set("spot", spot, 300)
